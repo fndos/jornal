@@ -1,0 +1,63 @@
+:root{
+  --fondo:#fbfbfa; --papel:#fff; --tinta:#1a1d1c; --tinta2:#5c6663;
+  --linea:#dfe3e0; --acento:#1e5f58; --rojo:#b3261e;
+  --tipo:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{--fondo:#151917;--papel:#1d2320;--tinta:#e6eae7;--tinta2:#9aa5a0;
+        --linea:#2d3733;--acento:#6fbfb2;--rojo:#e8857c;}
+}
+*{box-sizing:border-box}
+/* El atributo hidden debe ganarle a cualquier display de clase, si no, una
+   regla como .aviso{display:flex} deja visible lo que el código ya ocultó. */
+[hidden]{display:none!important}
+body{margin:0;background:var(--fondo);color:var(--tinta);font:14px/1.5 var(--tipo);
+     -webkit-font-smoothing:antialiased}
+main{max-width:620px;margin:0 auto;padding:48px 20px 80px}
+header{margin-bottom:28px}
+h1{font-size:22px;font-weight:600;margin:0 0 6px;letter-spacing:-.01em}
+h2{font-size:14px;font-weight:600;margin:0 0 4px}
+.sub{color:var(--tinta2);margin:0}
+.titular{font-weight:600;margin:0 0 4px}
+
+.aviso{display:flex;align-items:center;gap:10px;color:var(--tinta2);
+       padding:14px 16px;border:1px solid var(--linea);border-radius:8px;background:var(--papel)}
+.girador{width:14px;height:14px;flex:0 0 auto;border:2px solid var(--linea);
+         border-top-color:var(--acento);border-radius:50%;animation:giro .8s linear infinite}
+@keyframes giro{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.girador{animation:none}}
+
+.zona{border:1.5px dashed var(--linea);border-radius:8px;background:var(--papel);
+      padding:28px 20px;text-align:center;transition:border-color .15s,background .15s}
+.zona.encima{border-color:var(--acento);background:color-mix(in srgb,var(--acento) 6%,var(--papel))}
+.zona p{margin:0;color:var(--tinta2)}
+.elegido{margin-top:10px!important;color:var(--tinta)!important;font-weight:500;
+         word-break:break-all}
+.enlace{background:none;border:0;padding:0;font:inherit;color:var(--acento);
+        text-decoration:underline;cursor:pointer}
+
+.acciones{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px}
+button,.boton{font:inherit;padding:7px 14px;border-radius:6px;border:1px solid transparent;
+  background:var(--acento);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
+button:disabled{opacity:.45;cursor:default}
+button.secundario,.boton.secundario{background:var(--papel);color:var(--tinta);
+  border-color:var(--linea)}
+button:not(:disabled):hover,.boton:hover{filter:brightness(1.07)}
+:focus-visible{outline:2px solid var(--acento);outline-offset:2px}
+.estado{color:var(--tinta2)}
+.estado.mal{color:var(--rojo)}
+
+#resultado{margin-top:26px;padding-top:22px;border-top:1px solid var(--linea)}
+.panel{margin-top:34px;padding-top:22px;border-top:1px solid var(--linea)}
+
+#ajustes{margin-top:34px;padding-top:20px;border-top:1px solid var(--linea);
+         font-size:13px;color:var(--tinta2)}
+#ajustes summary{cursor:pointer;color:var(--tinta2);list-style:none}
+#ajustes summary::-webkit-details-marker{display:none}
+#ajustes summary:hover{color:var(--tinta)}
+.ajustes{border-collapse:collapse;margin-top:12px;font-size:13px}
+.ajustes th{text-align:left;font-weight:400;color:var(--tinta2);padding:4px 24px 4px 0}
+.ajustes td{font-variant-numeric:tabular-nums;padding:4px 0}
+
+.nota{margin-top:16px;padding:12px 14px;border-left:3px solid var(--acento);
+      background:var(--papel);color:var(--tinta2);font-size:13px;line-height:1.5}

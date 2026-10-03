@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jornal</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%231e5f58%27/%3E%3Ctext x=%2716%27 y=%2723%27 font-size=%2720%27 font-family=%27sans-serif%27 fill=%27white%27 text-anchor=%27middle%27%3EJ%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+
+<main>
+  <header>
+    <h1>Jornal</h1>
+    <p class="sub">Convierte el registro del reloj biométrico en el formato de la quincena.</p>
+  </header>
+
+  <section id="arranque" class="aviso">
+    <span class="girador"></span>
+    <span id="arranque-txt">Cargando la aplicación. La primera vez tarda unos segundos.</span>
+  </section>
+
+  <section id="trabajo" hidden>
+    <div id="zona" class="zona">
+      <input type="file" id="archivo" accept=".xlsx,.xlsm" hidden>
+      <p id="zona-txt">Arrastra aquí el Excel del reloj biométrico, o
+         <button type="button" class="enlace" id="buscar">búscalo en tu equipo</button>.</p>
+      <p id="elegido" class="elegido" hidden></p>
+    </div>
+
+    <div class="acciones">
+      <button id="generar" disabled>Generar formato</button>
+      <span id="estado" class="estado"></span>
+    </div>
+
+    <div id="resultado" hidden>
+      <p id="res-titular" class="titular"></p>
+      <p id="res-detalle" class="sub"></p>
+      <div class="acciones">
+        <a id="baja-formato" class="boton" download>Descargar formato</a>
+        <a id="baja-revision" class="boton secundario" download>Descargar revisión</a>
+      </div>
+
+      <p id="sin-roles" class="nota" hidden>
+        No apliqué ningún rol. Si hay guardias, quemadores o personal en El Triunfo,
+        <input type="file" id="archivo-roles" accept=".xlsx,.xlsm" hidden>
+        <button type="button" class="enlace" id="cargar-roles">carga una quincena
+        anterior ya llena</button> y los tomo de ahí. Se guardan en este navegador.
+      </p>
+    </div>
+  </section>
+
+  <details id="ajustes" hidden>
+    <summary>Ver los valores con que se calcula</summary>
+    <table class="ajustes"><tbody id="ajustes-tabla"></tbody></table>
+  </details>
+</main>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js"></script>
+<script src="app.js" type="module"></script>
+</body>
+</html>

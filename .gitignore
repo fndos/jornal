@@ -1,0 +1,12 @@
+# Herramientas de prueba: node_modules pesa cientos de megas
+_prueba/
+node_modules/
+.DS_Store
+
+# Nunca al repositorio: llevan cédulas y nombres
+py/datos/roles.xlsx
+py/datos/plantilla.xlsx
+*biometrico*.xlsx
+*Biometrico*.xlsx
+*Borrador*.xlsx
+resultados/
