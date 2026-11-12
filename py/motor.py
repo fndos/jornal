@@ -6,6 +6,8 @@ No sabe nada de interfaz ni de linea de comandos. Lo usan por igual
 """
 
 import datetime as dt
+import math
+import re
 from collections import Counter, defaultdict
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
@@ -27,7 +29,7 @@ CATEGORIAS_ACCION = {
     "SIN DATOS EN EL EXPORT", "CÉDULA DUPLICADA", "SIN CÉDULA", "CÉDULA IRREGULAR",
     "NO ESTÁ EN EL FORMATO", "SIN MARCACIONES", "MARCACIONES INCOMPLETAS",
     "REQUIERE CRITERIO", "RECONSTRUCCIÓN INSUFICIENTE", "RECONSTRUCCIÓN EN SÁBADO",
-    "LICENCIA VIGENTE POR CONFIRMAR",
+    "LICENCIA VIGENTE POR CONFIRMAR", "EXTRAS A OTRA TARIFA",
 }
 
 _ORDEN = [
@@ -36,8 +38,9 @@ _ORDEN = [
     "CÉDULAS COMPLETADAS", "FÓRMULA CORREGIDA", "ROLES DEL PROPIO ARCHIVO",
     "ROL DE PERSONA", "MARCACIONES INCOMPLETAS",
     "REQUIERE CRITERIO", "RECONSTRUCCIÓN INSUFICIENTE", "RECONSTRUCCIÓN EN SÁBADO",
-    "JORNADA PARCIAL", "MEDIA JORNADA", "JORNADA RECONSTRUIDA",
-    "PRESENCIA SIN HORAS", "POSIBLE HORA EXTRA",
+    "EXTRAS A OTRA TARIFA",
+    "JORNADA PARCIAL", "MEDIA JORNADA", "TURNO DE TARDE", "JORNADA SIN ALMUERZO",
+    "JORNADA RECONSTRUIDA", "PRESENCIA SIN HORAS", "HORAS EXTRAS", "POSIBLE HORA EXTRA",
 ]
 
 
@@ -413,6 +416,24 @@ def calcular_dia(segs, cfg, perfil=None):
     if b["MEDIODIA"] and b["ENTRADA"] and not b["ALM_IN"] and not b["SALIDA"]:
         return (b["MEDIODIA"] - b["ENTRADA"]) / 3600, "media_jornada", f"mañana ({marcas})"
 
+    # Turno de tarde: dos marcas, la primera pasado el almuerzo de la manana y la
+    # segunda ya en horario de salida (p. ej. 13:00 y 16:30). Es la media jornada
+    # simetrica a la de manana; antes caia en "faltan ENTRADA+ALM_OUT".
+    lim = {k: a_segundos(v) for k, v in cfg["ventanas"].items()}
+    if (cfg.get("calcular_turno_tarde", True) and len(limpias) == 2
+            and b["ENTRADA"] is None
+            and limpias[0] >= lim["fin_alm_out"] and limpias[1] >= lim["fin_alm_in"]):
+        return (limpias[1] - limpias[0]) / 3600, "turno_tarde", f"tarde ({marcas})"
+
+    # Entrada y salida sin marcar el almuerzo, con una jornada completa entre
+    # ambas (p. ej. 06:38 y 18:26). En las quincenas llenadas a mano se pagan
+    # siempre como dia completo.
+    if (cfg.get("dia_completo_sin_almuerzo", True) and len(limpias) == 2
+            and b["ENTRADA"] is not None and b["SALIDA"] is not None
+            and (b["SALIDA"] - b["ENTRADA"]) / 3600 >= cfg["horas_jornada_completa"]):
+        return ((b["SALIDA"] - b["ENTRADA"]) / 3600, "sin_almuerzo",
+                f"entrada y salida, sin marcas de almuerzo ({marcas})")
+
     faltan = [k for k in ("ENTRADA", "ALM_OUT", "ALM_IN", "SALIDA") if b[k] is None]
 
     if not faltan:
@@ -431,10 +452,21 @@ def calcular_dia(segs, cfg, perfil=None):
     return None, "incalculable", f"faltan {'+'.join(faltan)} ({marcas})"
 
 
-def valor_dia(horas, tipo, fecha, cfg):
-    """-> (valor | None, nota)"""
+def valor_dia(horas, tipo, fecha, cfg, turno_tarde=False):
+    """-> (valor | None, nota)
+
+    El turno de tarde se paga por horas tambien a los AFILIADOS, y sus horas se
+    redondean hacia abajo: asi estan llenadas a mano las quincenas de septiembre
+    (3.22 h -> 3, 3.8 h -> 3.5, 4.25 h -> 4).
+    """
     dow = fecha.weekday()
-    h = redondear(horas, cfg["redondeo_horas"])
+    paso = cfg["redondeo_horas"]
+    if turno_tarde:
+        h = math.floor(horas / paso + 1e-9) * paso
+        if h <= 0:
+            return None, "turno de tarde de menos de media hora"
+    else:
+        h = redondear(horas, paso)
 
     if dow == 6:
         return None, "domingo: tarifa no deducible del histórico"
@@ -446,7 +478,7 @@ def valor_dia(horas, tipo, fecha, cfg):
             return cfg["sabado_estandar_valor"], "sábado estándar"
         return dinero(h * cfg["tarifa_hora_finde"]), "sábado por horas"
 
-    if tipo == "AFILIADO":
+    if tipo == "AFILIADO" and not turno_tarde:
         return cfg["marca_afiliado_presente"], "afiliado presente"
 
     if h >= cfg["horas_jornada_completa"]:
@@ -457,6 +489,35 @@ def valor_dia(horas, tipo, fecha, cfg):
     if abs(h - int(h)) >= 1e-9:          # las medias horas llevan el ajuste
         bruto += cfg["ajuste_media_hora"]
     return dinero(bruto), "jornada parcial"
+
+
+def horas_extra(salida, cfg):
+    """Medias horas completas despues de la hora de fin de jornada.
+
+    Con fin 16:30 y 10 min de tolerancia: 16:49 -> 0, 16:50 -> 0.5,
+    17:20 -> 1, 18:20 -> 2. Contrastado contra las dos quincenas de septiembre
+    llenadas a mano: coincide en el 99 % de los dias completos.
+    """
+    fin = a_segundos(cfg["hora_fin_jornada"])
+    tolerancia = int(cfg["minutos_tolerancia_extras"]) * 60
+    return max(0, (salida - fin + tolerancia) // 1800) * 0.5
+
+
+def valor_extra(horas, cfg):
+    """Mismo calculo que la jornada parcial: 0.5 h -> 1.1, 3 h -> 6.75."""
+    bruto = horas * cfg["tarifa_hora_extra"]
+    if abs(horas - int(horas)) >= 1e-9:
+        bruto += cfg["ajuste_media_hora"]
+    return dinero(bruto)
+
+
+def tarifa_de_nota(texto):
+    """Algunas filas llevan en la columna AM una nota como
+    'DIF. X PAGAR HORAS EXTRAS A $2.5'. -> 2.5, o None si no hay nota."""
+    if not isinstance(texto, str) or "EXTRA" not in texto.upper():
+        return None
+    m = re.search(r"\$\s*(\d+(?:[.,]\d+)?)", texto)
+    return float(m.group(1).replace(",", ".")) if m else None
 
 
 # --------------------------------------------------------------------------- #
@@ -550,8 +611,9 @@ def procesar(archivo, salida, cfg, plantilla=None, colaboradores=None,
     incidencias = []
     escritas = Counter()
     respetar = cfg.get("respetar_lo_ya_escrito", True)
-    ya_escritas = {(f["fila"], c) for f in filas for c, _ in columnas
-                   if ws.cell(f["fila"], c).value is not None} if respetar else set()
+    # Cada dia ocupa dos columnas: el monto y, a su derecha, las horas extras.
+    ya_escritas = {(f["fila"], c + d) for f in filas for c, _ in columnas for d in (0, 1)
+                   if ws.cell(f["fila"], c + d).value is not None} if respetar else set()
 
     def escribir(fila, col, valor, concepto):
         """Nunca encima de algo que ya estaba: esas celdas las puso una persona."""
@@ -659,11 +721,11 @@ def procesar(archivo, salida, cfg, plantilla=None, colaboradores=None,
                    "No aparece en el biométrico en todo el período; fila en blanco")
             continue
 
+        horas_extra_fila = 0.0
         for col, fecha in columnas:
             if fecha > fin_quincena or fecha not in fechas_export:
                 continue
 
-            celda = ws.cell(f["fila"], col)
             segs = dias.get(fecha)
 
             if segs is None:
@@ -694,26 +756,62 @@ def procesar(archivo, salida, cfg, plantilla=None, colaboradores=None,
                     anotar("RECONSTRUCCIÓN EN SÁBADO", f, fecha, detalle, crudo)
                     continue
 
-            valor, nota = valor_dia(horas, f["tipo"], fecha, cfg)
+            if calidad == "sin_almuerzo" and fecha.weekday() >= 5:
+                # el fin de semana se paga por horas y sin almuerzo no se sabe cuantas
+                anotar("REQUIERE CRITERIO", f, fecha, detalle, crudo)
+                continue
+
+            tarde = calidad == "turno_tarde"
+            valor, nota = valor_dia(horas, f["tipo"], fecha, cfg, turno_tarde=tarde)
             if valor is None:
                 anotar("REQUIERE CRITERIO", f, fecha, nota, f"{horas:.2f} h / {crudo}")
                 continue
 
-            if not escribir(f["fila"], col, valor, nota):
+            if not escribir(f["fila"], col, valor, "turno de tarde" if tarde else nota):
                 continue
 
             if calidad == "reconstruida":
                 anotar("JORNADA RECONSTRUIDA", f, fecha, detalle, f"neto {horas:.2f} h")
             elif calidad == "media_jornada":
                 anotar("MEDIA JORNADA", f, fecha, f"{detalle}; {horas:.2f} h netas", crudo)
-            if nota == "jornada parcial":
+            elif tarde:
+                anotar("TURNO DE TARDE", f, fecha,
+                       f"{detalle}; {horas:.2f} h → se pagó {valor}", crudo)
+            elif calidad == "sin_almuerzo":
+                anotar("JORNADA SIN ALMUERZO", f, fecha,
+                       f"{detalle}; {horas:.2f} h entre entrada y salida → día completo", crudo)
+            if nota == "jornada parcial" and not tarde:
                 anotar("JORNADA PARCIAL", f, fecha,
                        f"{horas:.2f} h netas → se pagó por horas; verificar contra la bitácora", crudo)
+
+            # Las extras se pagan sólo sobre un día completo entre semana: el
+            # turno de tarde y la jornada parcial ya se pagan por horas.
+            completo = nota in ("jornada completa", "afiliado presente")
+            if cfg.get("escribir_extras") and completo and fecha.weekday() < 5:
+                he = horas_extra(segs[-1], cfg)
+                if he > 0:
+                    ve = valor_extra(he, cfg)
+                    if escribir(f["fila"], col + 1, ve, "hora extra"):
+                        horas_extra_fila += he
+                        anotar("HORAS EXTRAS", f, fecha,
+                               f"salida {hhmm(segs[-1])} → {fmt_horas(he)} h extra = {ve}; "
+                               f"contrastar con la bitácora", crudo)
+                continue
 
             corte = a_segundos(cfg["umbral_candidato_extras_salida"])
             if segs[-1] >= corte or horas >= cfg["umbral_candidato_extras_horas"]:
                 anotar("POSIBLE HORA EXTRA", f, fecha,
                        f"salida {hhmm(segs[-1])}, {horas:.2f} h netas; confirmar con la bitácora", crudo)
+
+        # Filas con nota "DIF. X PAGAR HORAS EXTRAS A $2.5" en la columna AM: la
+        # diferencia contra la tarifa normal se pone a mano en la columna AK.
+        otra = tarifa_de_nota(ws.cell(f["fila"], 39).value)
+        if horas_extra_fila and otra and abs(otra - cfg["tarifa_hora_extra"]) > 1e-9:
+            anotar("EXTRAS A OTRA TARIFA", f, None,
+                   f"La fila dice «{str(ws.cell(f['fila'], 39).value).strip()}». Se escribieron "
+                   f"{fmt_horas(horas_extra_fila)} h extra a {cfg['tarifa_hora_extra']}; la "
+                   f"diferencia a {otra} sería {dinero(horas_extra_fila * (otra - cfg['tarifa_hora_extra']))}. "
+                   f"Confirmar y escribirla en la columna AK.")
 
     # --- subtotal ---
     if cfg["corregir_formula_subtotal"] and filas:

@@ -10,3 +10,6 @@ py/datos/plantilla.xlsx
 *Biometrico*.xlsx
 *Borrador*.xlsx
 resultados/
+
+# Python
+__pycache__/
